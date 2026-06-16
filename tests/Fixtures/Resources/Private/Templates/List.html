@@ -1,0 +1,17 @@
+<html xmlns:f="http://typo3.org/ns/TYPO3/CMS/Fluid/ViewHelpers">
+<f:layout name="Default" />
+
+<f:section name="Main">
+    <f:if condition="{items}">
+        <f:then>
+            <f:for each="{items}" as="item">
+                <f:if condition="{item.active}">
+                    <span>{item.title}</span>
+                </f:if>
+            </f:for>
+        </f:then>
+        <f:else>
+            <p>No items</p>
+        </f:else>
+    </f:if>
+</f:section>
