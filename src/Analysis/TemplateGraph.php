@@ -6,19 +6,6 @@ declare(strict_types=1);
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-/*
- * This file is part of the package cru/fluidlint
- *
- * Copyright (C) 2026 Christian Rath-Ulrich
- *
- * It is free software; you can redistribute it and/or modify it under
- * the terms of the GNU General Public License, either version 3
- * of the License, or any later version.
- *
- * For the full copyright and license information, please read the
- * LICENSE file that was distributed with this source code.
- */
-
 namespace Cru\Fluidlint\Analysis;
 
 use TYPO3Fluid\Fluid\Core\Parser\ParsingState;
@@ -28,32 +15,43 @@ final class TemplateGraph
     /**
      * @param array<string, list<string>> $filesByType
      * @param array<string, list<string>> $sectionsByFile
-     * @param list<array{from: string, type: string, target: string}> $references
+     * @param list<array{from: string, type: string, target: string, usesAll?: bool, arguments?: list<string>}> $references
+     * @param array<string, list<string>> $partialNamesByFile
+     * @param list<string> $typoScriptReferencedPartials
      */
     public function __construct(
         private readonly array $filesByType,
         private readonly array $sectionsByFile,
         private readonly array $references,
+        private readonly array $partialNamesByFile,
+        private readonly array $typoScriptReferencedPartials = [],
     ) {
     }
 
     /**
      * @param array<string, ParsingState> $parsingStates
      */
-    public static function build(array $parsingStates): self
+    public static function build(array $parsingStates, ?TypoScriptTemplateIndex $typoScriptIndex = null): self
     {
         $walker = new AstWalker();
         $extractor = new ArgumentExtractor();
+        $variableExtractor = new VariableReferenceExtractor();
         $filesByType = ['template' => [], 'partial' => [], 'layout' => []];
         $sectionsByFile = [];
         $references = [];
+        $partialNamesByFile = [];
+        $partialRootPaths = $typoScriptIndex?->partialRootPaths() ?? [];
 
         foreach (array_keys($parsingStates) as $file) {
             $type = self::detectType($file);
             $filesByType[$type][] = $file;
+            if ($type === 'partial') {
+                $partialNamesByFile[$file] = self::partialNamesForFile($file, $partialRootPaths);
+            }
         }
 
         foreach ($parsingStates as $file => $parsingState) {
+            $source = file_get_contents($file) ?: '';
             $layoutName = $parsingState->getUnevaluatedLayoutName();
             if (is_string($layoutName) && $layoutName !== '') {
                 $references[] = ['from' => $file, 'type' => 'layout', 'target' => $layoutName];
@@ -85,28 +83,57 @@ final class TemplateGraph
                     }
                 },
             );
+
+            foreach ($variableExtractor->extractPartialRenderCalls($source) as $call) {
+                $references[] = [
+                    'from' => $file,
+                    'type' => 'partial',
+                    'target' => $call['partial'],
+                    'usesAll' => $call['usesAll'],
+                    'arguments' => $call['arguments'],
+                ];
+            }
+
             $sectionsByFile[$file] = array_keys($sections);
         }
 
-        return new self($filesByType, $sectionsByFile, $references);
+        return new self(
+            $filesByType,
+            $sectionsByFile,
+            self::deduplicateReferences($references),
+            $partialNamesByFile,
+            $typoScriptIndex?->referencedPartialNames() ?? [],
+        );
     }
 
     /**
+     * @param list<string> $excludeOrphanPatterns
      * @return list<string>
      */
-    public function orphanPartials(): array
+    public function orphanPartials(array $excludeOrphanPatterns = []): array
     {
-        $referenced = [];
-        foreach ($this->references as $reference) {
-            if ($reference['type'] === 'partial') {
-                $referenced[$reference['target']] = true;
-            }
+        $referenced = $this->transitivelyReferencedPartialNames();
+
+        foreach ($this->typoScriptReferencedPartials as $name) {
+            $referenced[$name] = true;
         }
 
         $orphans = [];
         foreach ($this->filesByType['partial'] as $file) {
-            $name = self::basenameWithoutExtension($file);
-            if (!isset($referenced[$name])) {
+            if (GlobMatcher::matchesAny($file, $excludeOrphanPatterns)) {
+                continue;
+            }
+
+            $names = $this->partialNamesByFile[$file] ?? [self::basenameWithoutExtension($file)];
+            $isReferenced = false;
+            foreach ($names as $name) {
+                if (isset($referenced[$name])) {
+                    $isReferenced = true;
+                    break;
+                }
+            }
+
+            if (!$isReferenced) {
                 $orphans[] = $file;
             }
         }
@@ -152,7 +179,7 @@ final class TemplateGraph
 
         $unused = [];
         foreach ($this->sectionsByFile as $file => $sections) {
-            if (!self::matchesAnyGlob($file, $entryPointGlobs)) {
+            if (!GlobMatcher::matchesAny($file, $entryPointGlobs)) {
                 continue;
             }
 
@@ -164,6 +191,108 @@ final class TemplateGraph
         }
 
         return $unused;
+    }
+
+    /**
+     * @return list<array{from: string, type: string, target: string, usesAll?: bool, arguments?: list<string>}>
+     */
+    public function references(): array
+    {
+        return $this->references;
+    }
+
+    /**
+     * @return array<string, list<string>>
+     */
+    public function partialNamesByFile(): array
+    {
+        return $this->partialNamesByFile;
+    }
+
+    /**
+     * @return array<string, true>
+     */
+    private function transitivelyReferencedPartialNames(): array
+    {
+        $referenced = [];
+        $queue = [];
+
+        foreach ($this->references as $reference) {
+            if ($reference['type'] !== 'partial') {
+                continue;
+            }
+            $target = $reference['target'];
+            if (!isset($referenced[$target])) {
+                $referenced[$target] = true;
+                $queue[] = $target;
+            }
+        }
+
+        while ($queue !== []) {
+            $current = array_shift($queue);
+            foreach ($this->filesByType['partial'] as $file) {
+                $names = $this->partialNamesByFile[$file] ?? [];
+                if (!in_array($current, $names, true)) {
+                    continue;
+                }
+
+                foreach ($this->references as $reference) {
+                    if ($reference['from'] !== $file || $reference['type'] !== 'partial') {
+                        continue;
+                    }
+                    $target = $reference['target'];
+                    if (!isset($referenced[$target])) {
+                        $referenced[$target] = true;
+                        $queue[] = $target;
+                    }
+                }
+            }
+        }
+
+        return $referenced;
+    }
+
+    /**
+     * @param list<string> $partialRootPaths
+     * @return list<string>
+     */
+    public static function partialNamesForFile(string $file, array $partialRootPaths): array
+    {
+        $names = [];
+        $normalizedFile = str_replace('\\', '/', $file);
+
+        if (preg_match('#/(?:Partials|partials)/(.+)\.(?:fluid\.)?html$#i', $normalizedFile, $match) === 1) {
+            $names[] = $match[1];
+        }
+
+        foreach ($partialRootPaths as $root) {
+            $normalizedRoot = rtrim(str_replace('\\', '/', $root), '/');
+            if (!str_starts_with($normalizedFile, $normalizedRoot . '/')) {
+                continue;
+            }
+
+            $relative = substr($normalizedFile, strlen($normalizedRoot) + 1);
+            $names[] = preg_replace('/\.(fluid\.)?html$/', '', $relative) ?? $relative;
+        }
+
+        $names[] = self::basenameWithoutExtension($file);
+
+        return array_values(array_unique($names));
+    }
+
+    /**
+     * @param list<array{from: string, type: string, target: string, usesAll?: bool, arguments?: list<string>}> $references
+     * @return list<array{from: string, type: string, target: string, usesAll?: bool, arguments?: list<string>}>
+     */
+    private static function deduplicateReferences(array $references): array
+    {
+        $unique = [];
+        foreach ($references as $reference) {
+            $key = $reference['from'] . '|' . $reference['type'] . '|' . $reference['target'];
+            $unique[$key] = $reference;
+        }
+
+        return array_values($unique);
     }
 
     private static function detectType(string $file): string
@@ -182,25 +311,5 @@ final class TemplateGraph
     {
         $base = basename($file);
         return preg_replace('/\.(fluid\.)?html$/', '', $base) ?? $base;
-    }
-
-    /**
-     * @param list<string> $globs
-     */
-    private static function matchesAnyGlob(string $file, array $globs): bool
-    {
-        foreach ($globs as $glob) {
-            $regex = '/^' . str_replace(
-                ['**', '*', '/'],
-                ['.*', '[^/]*', '\\/'],
-                $glob,
-            ) . '$/i';
-
-            if (preg_match($regex, $file) === 1 || preg_match($regex, basename($file)) === 1) {
-                return true;
-            }
-        }
-
-        return false;
     }
 }

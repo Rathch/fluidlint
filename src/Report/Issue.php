@@ -21,6 +21,8 @@ declare(strict_types=1);
 
 namespace Cru\Fluidlint\Report;
 
+use Cru\Fluidlint\Util\PathRelativizer;
+
 final class Issue
 {
     public function __construct(
@@ -34,13 +36,18 @@ final class Issue
     ) {
     }
 
-    public function toArray(): array
+    public function displayFile(string $pathBase): string
+    {
+        return PathRelativizer::relativize($this->file, $pathBase);
+    }
+
+    public function toArray(?string $pathBase = null): array
     {
         return [
             'ruleId' => $this->ruleId,
             'severity' => $this->severity->value,
             'message' => $this->message,
-            'file' => $this->file,
+            'file' => $pathBase !== null ? $this->displayFile($pathBase) : $this->file,
             'line' => $this->line,
             'column' => $this->column,
             'context' => $this->context,

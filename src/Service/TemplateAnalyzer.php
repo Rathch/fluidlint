@@ -24,6 +24,7 @@ namespace Cru\Fluidlint\Service;
 use Cru\Fluidlint\Analysis\ComplexityAnalyzer;
 use Cru\Fluidlint\Analysis\DeadCodeAnalyzer;
 use Cru\Fluidlint\Analysis\TemplateGraph;
+use Cru\Fluidlint\Analysis\TypoScriptTemplateIndex;
 use Cru\Fluidlint\Configuration\Configuration;
 use Cru\Fluidlint\Parser\TemplateParserFactory;
 use Cru\Fluidlint\Report\Issue;
@@ -52,12 +53,13 @@ final class TemplateAnalyzer
     }
 
     /**
-     * @return array{issues: list<Issue>, parsingStates: array<string, ParsingState>}
+     * @return array{issues: list<Issue>, parsingStates: array<string, ParsingState>, complexity: array<string, array{complexity: int, branchCounts: array<string, int>, contributions: list<array{viewHelper: string, line: int|null, points: int}>}>}
      */
     public function analyzeFiles(array $files, Configuration $configuration, bool $includeComplexity = true, bool $includeDeadCode = true): array
     {
         $issues = [];
         $parsingStates = [];
+        $complexity = [];
 
         foreach ($files as $file) {
             $source = file_get_contents($file);
@@ -84,16 +86,24 @@ final class TemplateAnalyzer
             array_push($issues, ...$this->ruleEngine->analyze($file, $source, $parsingState, $configuration));
 
             if ($includeComplexity) {
+                $measurement = $this->complexityAnalyzer->measure($source, $parsingState);
+                $complexity[$file] = [
+                    'complexity' => $measurement['complexity'],
+                    'branchCounts' => ComplexityAnalyzer::summarizeContributions($measurement['contributions']),
+                    'contributions' => $measurement['contributions'],
+                ];
                 array_push($issues, ...$this->complexityAnalyzer->analyze($file, $source, $parsingState, $configuration));
             }
         }
 
         if ($includeDeadCode && $parsingStates !== []) {
-            $graph = TemplateGraph::build($parsingStates);
+            $projectRoot = $this->resolveProjectRoot(array_keys($parsingStates));
+            $typoScriptIndex = TypoScriptTemplateIndex::build($projectRoot, $configuration->typoScriptPaths);
+            $graph = TemplateGraph::build($parsingStates, $typoScriptIndex);
             array_push($issues, ...$this->deadCodeAnalyzer->analyzeProject($parsingStates, $graph, $configuration));
         }
 
-        return ['issues' => $issues, 'parsingStates' => $parsingStates];
+        return ['issues' => $issues, 'parsingStates' => $parsingStates, 'complexity' => $complexity];
     }
 
     private function createParseErrorIssue(string $file, ParserException $exception): Issue
@@ -114,5 +124,30 @@ final class TemplateAnalyzer
             line: $line,
             column: $column,
         );
+    }
+
+    /**
+     * @param list<string> $files
+     */
+    private function resolveProjectRoot(array $files): string
+    {
+        if ($files === []) {
+            return getcwd() ?: '.';
+        }
+
+        $common = str_replace('\\', '/', dirname($files[0]));
+        foreach ($files as $file) {
+            $directory = str_replace('\\', '/', dirname($file));
+            while (!str_starts_with($directory, $common) && $common !== '/') {
+                $common = dirname($common);
+            }
+        }
+
+        $cwd = str_replace('\\', '/', getcwd() ?: '.');
+        if (is_dir($cwd . '/Configuration')) {
+            return $cwd;
+        }
+
+        return $common;
     }
 }

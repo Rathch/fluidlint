@@ -37,10 +37,11 @@ final class ComplexityAnalyzer
         $walker = new AstWalker();
         $score = 1;
         $contributions = [];
+        $sourceLocator = new ViewHelperSourceLocator($source);
 
         $walker->walk(
             $parsingState->getRootNode(),
-            function (ViewHelperNode $node) use (&$score, &$contributions, $walker, $source): void {
+            function (ViewHelperNode $node) use (&$score, &$contributions, $walker, $sourceLocator): void {
                 $identifier = $walker->viewHelperIdentifier($node);
                 $increment = 0;
 
@@ -59,7 +60,7 @@ final class ComplexityAnalyzer
                 }
 
                 $score += $increment;
-                $line = self::lineForViewHelper($source, $node);
+                $line = $sourceLocator->lineFor($node);
                 $contributions[] = [
                     'viewHelper' => $identifier,
                     'line' => $line,
@@ -86,10 +87,27 @@ final class ComplexityAnalyzer
                     'complexity' => $score,
                     'warn' => $configuration->complexityWarn,
                     'error' => $configuration->complexityError,
-                    'contributions' => $contributions,
+                    'branchCounts' => self::summarizeContributions($contributions),
                 ],
             ),
         ];
+    }
+
+    /**
+     * @param list<array{viewHelper: string, line: int|null, points: int}> $contributions
+     * @return array<string, int>
+     */
+    public static function summarizeContributions(array $contributions): array
+    {
+        $counts = [];
+        foreach ($contributions as $contribution) {
+            $name = $contribution['viewHelper'];
+            $counts[$name] = ($counts[$name] ?? 0) + $contribution['points'];
+        }
+
+        arsort($counts);
+
+        return $counts;
     }
 
     /**
@@ -100,10 +118,11 @@ final class ComplexityAnalyzer
         $walker = new AstWalker();
         $score = 1;
         $contributions = [];
+        $sourceLocator = new ViewHelperSourceLocator($source);
 
         $walker->walk(
             $parsingState->getRootNode(),
-            function (ViewHelperNode $node) use (&$score, &$contributions, $walker, $source): void {
+            function (ViewHelperNode $node) use (&$score, &$contributions, $walker, $sourceLocator): void {
                 $identifier = $walker->viewHelperIdentifier($node);
                 $increment = 0;
 
@@ -123,26 +142,12 @@ final class ComplexityAnalyzer
                 $score += $increment;
                 $contributions[] = [
                     'viewHelper' => $identifier,
-                    'line' => self::lineForViewHelper($source, $node),
+                    'line' => $sourceLocator->lineFor($node),
                     'points' => $increment,
                 ];
             },
         );
 
         return ['complexity' => $score, 'contributions' => $contributions];
-    }
-
-    private static function lineForViewHelper(string $source, ViewHelperNode $node): ?int
-    {
-        $needle = '<' . $node->getNamespace() . ':' . str_replace('.', '.', $node->getName());
-        $position = strpos($source, $needle);
-        if ($position === false) {
-            $position = strpos($source, '{' . $node->getNamespace() . ':' . $node->getName());
-        }
-        if ($position === false) {
-            return null;
-        }
-
-        return substr_count(substr($source, 0, $position), "\n") + 1;
     }
 }

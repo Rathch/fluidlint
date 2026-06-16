@@ -21,28 +21,38 @@ declare(strict_types=1);
 
 namespace Cru\Fluidlint\Report;
 
+use Cru\Fluidlint\Configuration\Configuration;
+use Cru\Fluidlint\Util\PathRelativizer;
+
 final class Reporter
 {
     /**
      * @param list<Issue> $issues
      */
-    public function renderText(array $issues): string
+    public function renderText(array $issues, string $pathBase, bool $decorated = true): string
     {
         if ($issues === []) {
-            return "No issues found.\n";
+            return $decorated ? "<info>No issues found.</info>\n" : "No issues found.\n";
         }
 
         usort($issues, $this->sortIssues(...));
 
         $lines = [];
         foreach ($issues as $issue) {
-            $location = $issue->file;
+            $location = $issue->displayFile($pathBase);
             if ($issue->line !== null) {
                 $location .= ':' . $issue->line;
             }
+
+            $severityLabel = strtoupper($issue->severity->value);
+            if ($decorated) {
+                $tag = $issue->severity->consoleTag();
+                $severityLabel = sprintf('<%s>%s</%s>', $tag, $severityLabel, $tag);
+            }
+
             $lines[] = sprintf(
                 '[%s] %s – %s (%s)',
-                strtoupper($issue->severity->value),
+                $severityLabel,
                 $issue->ruleId,
                 $issue->message,
                 $location,
@@ -55,21 +65,21 @@ final class Reporter
     /**
      * @param list<Issue> $issues
      */
-    public function renderJson(array $issues, int $filesScanned = 0): string
+    public function renderJson(array $issues, string $pathBase, int $filesScanned = 0): string
     {
         usort($issues, $this->sortIssues(...));
 
         return json_encode([
             'filesScanned' => $filesScanned,
             'issueCount' => count($issues),
-            'issues' => array_map(static fn (Issue $issue): array => $issue->toArray(), $issues),
-        ], JSON_PRETTY_PRINT | JSON_THROW_ON_ERROR) . "\n";
+            'issues' => array_map(static fn (Issue $issue): array => $issue->toArray($pathBase), $issues),
+        ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR) . "\n";
     }
 
     /**
      * @param list<Issue> $issues
      */
-    public function renderSarif(array $issues, int $filesScanned = 0): string
+    public function renderSarif(array $issues, string $pathBase, int $filesScanned = 0): string
     {
         usort($issues, $this->sortIssues(...));
 
@@ -93,7 +103,7 @@ final class Reporter
                 'message' => ['text' => $issue->message],
                 'locations' => [[
                     'physicalLocation' => [
-                        'artifactLocation' => ['uri' => $issue->file],
+                        'artifactLocation' => ['uri' => $issue->displayFile($pathBase)],
                         'region' => array_filter([
                             'startLine' => $issue->line,
                             'startColumn' => $issue->column,
@@ -120,7 +130,40 @@ final class Reporter
             ]],
         ];
 
-        return json_encode($sarif, JSON_PRETTY_PRINT | JSON_THROW_ON_ERROR) . "\n";
+        return json_encode($sarif, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR) . "\n";
+    }
+
+    /**
+     * @param list<Issue> $issues
+     * @param array<string, array{complexity: int, branchCounts: array<string, int>, contributions: list<array{viewHelper: string, line: int|null, points: int}>}> $complexityByFile
+     */
+    public function renderDetailedReport(
+        array $issues,
+        string $pathBase,
+        int $filesScanned,
+        array $complexityByFile,
+        Configuration $configuration,
+    ): string {
+        usort($issues, $this->sortIssues(...));
+
+        return json_encode([
+            'generatedAt' => (new \DateTimeImmutable())->format(\DateTimeInterface::ATOM),
+            'filesScanned' => $filesScanned,
+            'issueCount' => count($issues),
+            'thresholds' => [
+                'nestingDepth' => [
+                    'warn' => $configuration->nestingDepthWarn,
+                    'error' => $configuration->nestingDepthError,
+                ],
+                'complexity' => [
+                    'warn' => $configuration->complexityWarn,
+                    'error' => $configuration->complexityError,
+                ],
+                'failOn' => $configuration->failOn,
+            ],
+            'complexity' => PathRelativizer::relativizeComplexityKeys($complexityByFile, $pathBase),
+            'issues' => array_map(static fn (Issue $issue): array => $issue->toArray($pathBase), $issues),
+        ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR) . "\n";
     }
 
     /**

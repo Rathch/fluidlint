@@ -25,6 +25,7 @@ use Cru\Fluidlint\Configuration\Configuration;
 use Cru\Fluidlint\Discovery\TemplateDiscovery;
 use Cru\Fluidlint\Report\Reporter;
 use Cru\Fluidlint\Service\TemplateAnalyzer;
+use Cru\Fluidlint\Util\PathRelativizer;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Input\InputInterface;
@@ -73,6 +74,7 @@ final class AnalyzeCommand extends Command
 
         $discovery = new TemplateDiscovery($configuration);
         $files = $discovery->discover($scanPaths);
+        $pathBase = PathRelativizer::resolveBase($scanPaths);
 
         if ($files === []) {
             $output->writeln('<comment>No Fluid templates found.</comment>');
@@ -83,9 +85,9 @@ final class AnalyzeCommand extends Command
         $format = (string)$input->getOption('format');
 
         $rendered = match ($format) {
-            'json' => $this->reporter->renderJson($result['issues'], count($files)),
-            'sarif' => $this->reporter->renderSarif($result['issues'], count($files)),
-            default => $this->reporter->renderText($result['issues']),
+            'json' => $this->reporter->renderJson($result['issues'], $pathBase, count($files)),
+            'sarif' => $this->reporter->renderSarif($result['issues'], $pathBase, count($files)),
+            default => $this->reporter->renderText($result['issues'], $pathBase, $output->isDecorated()),
         };
 
         $output->write($rendered);

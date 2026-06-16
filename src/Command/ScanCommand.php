@@ -41,6 +41,7 @@ final class ScanCommand extends AbstractAnalyzeCommand
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
         $configuration = $this->loadConfiguration($input);
+        $pathBase = $this->resolvePathBase($input);
         $discovery = new TemplateDiscovery($configuration);
         $files = $discovery->discover($this->resolvePaths($input));
 
@@ -52,12 +53,29 @@ final class ScanCommand extends AbstractAnalyzeCommand
         $result = $this->analyzer->analyzeFiles($files, $configuration, true, true);
         $format = (string)$input->getOption('format');
 
+        try {
+            $this->writeDetailedReportIfConfigured(
+                $input,
+                $output,
+                $configuration,
+                $result['issues'],
+                count($files),
+                $pathBase,
+                $result['complexity'],
+            );
+        } catch (\RuntimeException $exception) {
+            $output->writeln(sprintf('<error>%s</error>', $exception->getMessage()));
+
+            return 1;
+        }
+
         return $this->renderAndExit(
             $result['issues'],
             $format,
             count($files),
             $configuration->failOnSeverity(),
             $output,
+            $pathBase,
         );
     }
 }

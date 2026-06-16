@@ -23,8 +23,10 @@ namespace Cru\Fluidlint\Command;
 
 use Cru\Fluidlint\Configuration\Configuration;
 use Cru\Fluidlint\Report\Reporter;
+use Cru\Fluidlint\Report\ReportWriter;
 use Cru\Fluidlint\Report\Severity;
 use Cru\Fluidlint\Service\TemplateAnalyzer;
+use Cru\Fluidlint\Util\PathRelativizer;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
@@ -51,7 +53,8 @@ abstract class AbstractAnalyzeCommand extends Command
             ->addOption('fail-on', null, InputOption::VALUE_REQUIRED, 'Minimum severity to fail: info, warning, error', null)
             ->addOption('config', 'c', InputOption::VALUE_REQUIRED, 'Path to .fluidlint.yaml')
             ->addOption('exclude', null, InputOption::VALUE_REQUIRED | InputOption::VALUE_IS_ARRAY, 'Exclude glob pattern')
-            ->addOption('include-system-extensions', null, InputOption::VALUE_NONE, 'Include TYPO3 system extension templates');
+            ->addOption('include-system-extensions', null, InputOption::VALUE_NONE, 'Include TYPO3 system extension templates')
+            ->addOption('report-file', null, InputOption::VALUE_REQUIRED, 'Write detailed JSON report with complexity calculations to this path');
     }
 
     /**
@@ -60,6 +63,11 @@ abstract class AbstractAnalyzeCommand extends Command
     protected function resolvePaths(InputInterface $input): array
     {
         return array_values(array_filter(array_map('strval', $input->getArgument('paths') ?? [])));
+    }
+
+    protected function resolvePathBase(InputInterface $input): string
+    {
+        return PathRelativizer::resolveBase($this->resolvePaths($input));
     }
 
     protected function loadConfiguration(InputInterface $input): Configuration
@@ -111,22 +119,59 @@ abstract class AbstractAnalyzeCommand extends Command
             ]);
         }
 
+        $reportFile = $input->getOption('report-file');
+        if (is_string($reportFile) && trim($reportFile) !== '') {
+            $configuration = Configuration::fromArray(['report' => ['path' => trim($reportFile)]], $configuration);
+        }
+
         return $configuration;
     }
 
     /**
      * @param list<\Cru\Fluidlint\Report\Issue> $issues
      */
-    protected function renderAndExit(array $issues, string $format, int $filesScanned, Severity $failOn, OutputInterface $output): int
-    {
+    protected function renderAndExit(
+        array $issues,
+        string $format,
+        int $filesScanned,
+        Severity $failOn,
+        OutputInterface $output,
+        string $pathBase,
+    ): int {
         $rendered = match ($format) {
-            'json' => $this->reporter->renderJson($issues, $filesScanned),
-            'sarif' => $this->reporter->renderSarif($issues, $filesScanned),
-            default => $this->reporter->renderText($issues),
+            'json' => $this->reporter->renderJson($issues, $pathBase, $filesScanned),
+            'sarif' => $this->reporter->renderSarif($issues, $pathBase, $filesScanned),
+            default => $this->reporter->renderText($issues, $pathBase, $output->isDecorated()),
         };
 
         $output->write($rendered);
 
         return $this->reporter->exceedsFailThreshold($issues, $failOn) ? 1 : 0;
+    }
+
+    /**
+     * @param list<\Cru\Fluidlint\Report\Issue> $issues
+     * @param array<string, array{complexity: int, branchCounts: array<string, int>, contributions: list<array{viewHelper: string, line: int|null, points: int}>}> $complexityByFile
+     */
+    protected function writeDetailedReportIfConfigured(
+        InputInterface $input,
+        OutputInterface $output,
+        Configuration $configuration,
+        array $issues,
+        int $filesScanned,
+        string $pathBase,
+        array $complexityByFile = [],
+    ): void {
+        $path = $configuration->reportPath;
+        if ($path === null) {
+            return;
+        }
+
+        $writer = new ReportWriter($this->reporter);
+        $writer->writeDetailedReport($path, $issues, $pathBase, $filesScanned, $complexityByFile, $configuration);
+
+        if ($output->isVerbose()) {
+            $output->writeln(sprintf('<info>Detailed report written to %s</info>', $path), OutputInterface::VERBOSITY_VERBOSE);
+        }
     }
 }
