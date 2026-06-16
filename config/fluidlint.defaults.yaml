@@ -1,0 +1,32 @@
+paths:
+    - '**/Resources/Private/Templates/**/*.{html,fluid.html}'
+    - '**/Resources/Private/Partials/**/*.{html,fluid.html}'
+    - '**/Resources/Private/Layouts/**/*.{html,fluid.html}'
+
+exclude:
+    - 'vendor/**'
+    - 'typo3/sysext/**'
+    - 'public/typo3/**'
+
+includeSystemExtensions: false
+
+rules:
+    fluid/parse-error: true
+    fluid/nesting-depth: true
+    fluid/empty-section: true
+    fluid/duplicate-section: true
+
+nestingDepth:
+    warn: 8
+    error: 12
+
+complexity:
+    warn: 10
+    error: 20
+
+deadCode:
+    entryPoints:
+        - '**/Resources/Private/Templates/**'
+    orphanSeverity: info
+
+failOn: warning
