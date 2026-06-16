@@ -1,0 +1,30 @@
+#!/usr/bin/env php
+<?php
+
+declare(strict_types=1);
+
+use Cru\Fluidlint\Application;
+
+if (PHP_SAPI !== 'cli') {
+    fwrite(STDERR, 'fluidlint must be run from the command line.' . PHP_EOL);
+    exit(2);
+}
+
+$autoloadPaths = [
+    __DIR__ . '/../vendor/autoload.php',
+    __DIR__ . '/../../../autoload.php',
+];
+
+foreach ($autoloadPaths as $autoloadPath) {
+    if (is_file($autoloadPath)) {
+        require $autoloadPath;
+        break;
+    }
+}
+
+if (!class_exists(Application::class)) {
+    fwrite(STDERR, 'Composer autoload not found. Run composer install.' . PHP_EOL);
+    exit(2);
+}
+
+exit((new Application())->run());
