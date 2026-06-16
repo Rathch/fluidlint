@@ -14,8 +14,46 @@ fluidlint scans Fluid template structure without bootstrapping TYPO3. Custom Vie
 
 ## Installation
 
+Das Paket ist auf [Packagist](https://packagist.org/packages/cru/fluidlint) verfügbar:
+
 ```bash
-composer require --dev cru/fluidlint
+composer require --dev cru/fluidlint:^1.0
+```
+
+Für die Entwicklungsversion von `main`:
+
+```bash
+composer require --dev cru/fluidlint:dev-main
+```
+
+## Packagist-Synchronisation
+
+Das Repository ist bereits als [`cru/fluidlint`](https://packagist.org/packages/cru/fluidlint) registriert. Nach jedem Push auf `main` oder einem Release sollte Packagist aktualisiert werden.
+
+### Option A: GitHub-Integration (empfohlen)
+
+1. Auf [packagist.org](https://packagist.org) einloggen (mit GitHub-Konto).
+2. Profil → **GitHub** → Repository-Zugriff für `Rathch/fluidlint` erlauben.
+3. Paketseite → **Settings** → **GitHub Hook** aktivieren.
+
+Packagist zieht dann bei jedem Push automatisch den aktuellen Stand von `main` und neuen Tags.
+
+### Option B: GitHub Action (dieses Repository)
+
+1. Auf Packagist: Profil → **Show API Token** kopieren.
+2. In GitHub: Repository **Settings → Secrets and variables → Actions**:
+   - `PACKAGIST_USERNAME` = dein Packagist-Benutzername
+   - `PACKAGIST_TOKEN` = API-Token
+3. Bei Push auf `main` oder veröffentlichtem Release triggert [`.github/workflows/packagist.yml`](.github/workflows/packagist.yml) ein Update.
+
+### Manuell synchronisieren
+
+Auf der [Paketseite](https://packagist.org/packages/cru/fluidlint) auf **Update** klicken, oder per API:
+
+```bash
+curl -XPOST -H 'content-type:application/json' \
+  'https://packagist.org/api/update-package?username=DEIN_USER&apiToken=DEIN_TOKEN' \
+  -d '{"repository":{"url":"https://github.com/Rathch/fluidlint"}}'
 ```
 
 ## Usage

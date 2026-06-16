@@ -3,6 +3,18 @@
     "description": "Linting, cyclomatic complexity and dead-code analysis for TYPO3 Fluid templates",
     "type": "library",
     "license": "GPL-3.0-or-later",
+    "keywords": ["typo3", "fluid", "lint", "static-analysis", "templates"],
+    "homepage": "https://github.com/Rathch/fluidlint",
+    "support": {
+        "issues": "https://github.com/Rathch/fluidlint/issues",
+        "source": "https://github.com/Rathch/fluidlint"
+    },
+    "authors": [
+        {
+            "name": "Christian Rath-Ulrich",
+            "homepage": "https://github.com/Rathch"
+        }
+    ],
     "require": {
         "php": "^8.2",
         "typo3fluid/fluid": "^2.15|^4.0",
