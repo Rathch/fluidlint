@@ -2,7 +2,7 @@
     "name": "cru/fluidlint",
     "description": "Linting, cyclomatic complexity and dead-code analysis for TYPO3 Fluid templates",
     "type": "library",
-    "license": "MIT",
+    "license": "GPL-3.0-or-later",
     "require": {
         "php": "^8.2",
         "typo3fluid/fluid": "^2.15|^4.0",
