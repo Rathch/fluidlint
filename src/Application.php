@@ -30,7 +30,7 @@ final class Application extends SymfonyApplication
 {
     public function __construct()
     {
-        parent::__construct('fluidlint', '1.0.0');
+        parent::__construct('fluidlint', '1.0.1');
         $this->addCommands([
             new ScanCommand(),
             new ComplexityCommand(),
