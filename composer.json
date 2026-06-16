@@ -1,0 +1,33 @@
+{
+    "name": "cru/fluidlint",
+    "description": "Linting, cyclomatic complexity and dead-code analysis for TYPO3 Fluid templates",
+    "type": "library",
+    "license": "MIT",
+    "require": {
+        "php": "^8.2",
+        "typo3fluid/fluid": "^2.15|^4.0",
+        "symfony/console": "^6.4|^7.0",
+        "symfony/finder": "^6.4|^7.0",
+        "symfony/yaml": "^6.4|^7.0"
+    },
+    "require-dev": {
+        "phpunit/phpunit": "^10.5|^11.0"
+    },
+    "autoload": {
+        "psr-4": {
+            "Cru\\Fluidlint\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Cru\\Fluidlint\\Tests\\": "tests/"
+        }
+    },
+    "bin": [
+        "bin/fluidlint"
+    ],
+    "config": {
+        "sort-packages": true
+    },
+    "minimum-stability": "stable"
+}

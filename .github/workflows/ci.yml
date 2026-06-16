@@ -1,0 +1,31 @@
+name: Fluidlint
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          coverage: none
+
+      - name: Install dependencies
+        run: composer install --no-interaction
+
+      - name: Run tests
+        run: vendor/bin/phpunit
+
+      - name: Run fluidlint on fixtures
+        run: vendor/bin/php bin/fluidlint scan tests/Fixtures --format=json --fail-on=error
+
+      - name: Optional TYPO3 fluid:analyze complement
+        run: |
+          echo "On TYPO3 14.2+ projects, also run: vendor/bin/typo3 fluid:analyze"
