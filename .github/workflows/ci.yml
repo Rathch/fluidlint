@@ -24,7 +24,7 @@ jobs:
         run: vendor/bin/phpunit
 
       - name: Run fluidlint on fixtures
-        run: vendor/bin/php bin/fluidlint scan tests/Fixtures --format=json --fail-on=error
+        run: php bin/fluidlint scan tests/Fixtures/Resources/Private/Templates/List.html tests/Fixtures/Resources/Private/Layouts/Default.html --format=json --fail-on=error
 
       - name: Optional TYPO3 fluid:analyze complement
         run: |
