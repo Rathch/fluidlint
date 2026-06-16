@@ -1,0 +1,21 @@
+{
+    "name": "cru/typo3-fluidlint",
+    "description": "TYPO3 extension wrapper for fluidlint",
+    "type": "typo3-cms-extension",
+    "license": "MIT",
+    "require": {
+        "php": "^8.2",
+        "typo3/cms-core": "^13.4 || ^14.0",
+        "cru/fluidlint": "^1.0"
+    },
+    "autoload": {
+        "psr-4": {
+            "Cru\\Fluidlint\\Typo3\\": "Classes/"
+        }
+    },
+    "extra": {
+        "typo3/cms": {
+            "extension-key": "fluidlint"
+        }
+    }
+}

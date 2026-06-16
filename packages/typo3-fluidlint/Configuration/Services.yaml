@@ -1,0 +1,12 @@
+<?php
+
+declare(strict_types=1);
+
+use Cru\Fluidlint\Typo3\Command\AnalyzeCommand;
+use Symfony\Component\Console\Command\Command;
+
+return [
+    'commands' => [
+        'fluidlint:analyze' => AnalyzeCommand::class,
+    ],
+];
