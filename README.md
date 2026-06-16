@@ -2,6 +2,9 @@
 
 Linting, cyclomatic complexity and dead-code analysis for TYPO3 Fluid templates.
 
+SPDX-FileCopyrightText: 2025 Christian Rath-Ulrich  
+SPDX-License-Identifier: GPL-3.0-or-later
+
 fluidlint scans Fluid template structure without bootstrapping TYPO3. Custom ViewHelper PHP classes are not validated here — use PHPStan/PHPCS for that. On TYPO3 14.2+, complement this tool with `typo3 fluid:analyze` for syntax errors, invalid ViewHelpers and deprecations.
 
 ## Requirements
@@ -50,11 +53,11 @@ failOn: warning
 
 ## Checks
 
-| Category | Rule IDs |
-|----------|----------|
-| Structure | `fluid/parse-error`, `fluid/nesting-depth`, `fluid/empty-section`, `fluid/duplicate-section` |
-| Complexity | `complexity/threshold-exceeded` |
-| Dead code | `dead-code/unreachable-then`, `dead-code/unreachable-else`, `dead-code/unreachable-case`, `dead-code/unused-variable`, `dead-code/orphan-partial`, `dead-code/orphan-layout`, `dead-code/unused-section` |
+| Category   | Rule IDs                                                                                                                                                                                                 |
+|------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| Structure  | `fluid/parse-error`, `fluid/nesting-depth`, `fluid/empty-section`, `fluid/duplicate-section`                                                                                                             |
+| Complexity | `complexity/threshold-exceeded`                                                                                                                                                                          |
+| Dead code  | `dead-code/unreachable-then`, `dead-code/unreachable-else`, `dead-code/unreachable-case`, `dead-code/unused-variable`, `dead-code/orphan-partial`, `dead-code/orphan-layout`, `dead-code/unused-section` |
 
 ## TYPO3 integration
 
@@ -80,3 +83,7 @@ This delegates to the same core library as the standalone CLI.
 - Conditions using runtime controller variables cannot be classified as dead code
 - Dynamic `f:render partial="{name}"` references are not resolved
 - Orphan detection for action templates may produce info-level false positives without Extbase mapping
+
+## License
+
+This project is licensed under the GNU General Public License v3.0 or later. See [LICENSE](LICENSE) for details.
