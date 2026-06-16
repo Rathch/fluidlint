@@ -109,4 +109,15 @@ final class FluidlintTest extends TestCase
 
         self::assertNotNull($state->getRootNode());
     }
+
+    public function testParsesViewHelperWithConstructorDependencies(): void
+    {
+        $parser = new TemplateParserFactory();
+        $source = '<html xmlns:test="http://typo3.org/ns/Cru/Fluidlint/Tests/Fixtures/ViewHelpers">'
+            . '<test:unconstructable title="Test" />'
+            . '</html>';
+        $state = $parser->parse($source, 'unconstructable.html');
+
+        self::assertNotNull($state->getRootNode());
+    }
 }

@@ -27,9 +27,16 @@ use TYPO3Fluid\Fluid\Core\ViewHelper\ViewHelperResolver;
 
 /**
  * Resolves core Fluid ViewHelpers normally; falls back to PassthroughViewHelper for unknown VHs.
+ *
+ * TYPO3 CMS ViewHelpers often depend on bootstrapped services (e.g. ImageService). When fluidlint
+ * runs inside a TYPO3 project, templates may resolve to TYPO3\CMS\Fluid classes – we remap those
+ * to TYPO3Fluid equivalents when possible and stub the rest.
  */
 final class StubViewHelperResolver extends ViewHelperResolver
 {
+    private const CMS_VIEWHELPER_NAMESPACE = 'TYPO3\\CMS\\Fluid\\ViewHelpers\\';
+    private const FLUID_VIEWHELPER_NAMESPACE = 'TYPO3Fluid\\Fluid\\ViewHelpers\\';
+
     public function isNamespaceValid(string $namespaceIdentifier): bool
     {
         return true;
@@ -38,7 +45,9 @@ final class StubViewHelperResolver extends ViewHelperResolver
     public function resolveViewHelperClassName(string $namespaceIdentifier, string $methodIdentifier): string
     {
         try {
-            return parent::resolveViewHelperClassName($namespaceIdentifier, $methodIdentifier);
+            return $this->preferFluidCoreViewHelper(
+                parent::resolveViewHelperClassName($namespaceIdentifier, $methodIdentifier),
+            );
         } catch (ParserException) {
             return PassthroughViewHelper::class;
         }
@@ -50,6 +59,30 @@ final class StubViewHelperResolver extends ViewHelperResolver
             return new PassthroughViewHelper();
         }
 
-        return parent::createViewHelperInstanceFromClassName($viewHelperClassName);
+        $viewHelperClassName = $this->preferFluidCoreViewHelper($viewHelperClassName);
+
+        if (str_starts_with($viewHelperClassName, self::FLUID_VIEWHELPER_NAMESPACE)) {
+            return parent::createViewHelperInstanceFromClassName($viewHelperClassName);
+        }
+
+        try {
+            return parent::createViewHelperInstanceFromClassName($viewHelperClassName);
+        } catch (\Throwable) {
+            return new PassthroughViewHelper();
+        }
+    }
+
+    /**
+     * Maps TYPO3\CMS Fluid ViewHelper classes to their TYPO3Fluid core equivalents when available.
+     */
+    private function preferFluidCoreViewHelper(string $className): string
+    {
+        if (!str_starts_with($className, self::CMS_VIEWHELPER_NAMESPACE)) {
+            return $className;
+        }
+
+        $fluidClassName = self::FLUID_VIEWHELPER_NAMESPACE . substr($className, strlen(self::CMS_VIEWHELPER_NAMESPACE));
+
+        return class_exists($fluidClassName) ? $fluidClassName : $className;
     }
 }
