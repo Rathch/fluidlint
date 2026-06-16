@@ -41,6 +41,10 @@ final class Configuration
         public readonly array $entryPoints = ['**/Resources/Private/Templates/**'],
         public readonly string $orphanSeverity = 'info',
         public readonly string $failOn = 'warning',
+        public readonly array $typoScriptPaths = ['Configuration/**/*.typoscript', 'Configuration/**/*.ts'],
+        public readonly array $excludeOrphanPatterns = ['**/Resources/Extensions/**'],
+        public readonly array $excludeAnalysisPatterns = ['**/Resources/Extensions/**'],
+        public readonly ?string $reportPath = null,
     ) {
     }
 
@@ -85,7 +89,20 @@ final class Configuration
             entryPoints: $data['deadCode']['entryPoints'] ?? $defaults->entryPoints,
             orphanSeverity: $data['deadCode']['orphanSeverity'] ?? $defaults->orphanSeverity,
             failOn: $data['failOn'] ?? $defaults->failOn,
+            typoScriptPaths: $data['deadCode']['typoScriptPaths'] ?? $defaults->typoScriptPaths,
+            excludeOrphanPatterns: $data['deadCode']['excludeOrphanPatterns'] ?? $defaults->excludeOrphanPatterns,
+            excludeAnalysisPatterns: $data['deadCode']['excludeAnalysisPatterns'] ?? $defaults->excludeAnalysisPatterns,
+            reportPath: self::resolveReportPath($data['report']['path'] ?? $defaults->reportPath),
         );
+    }
+
+    private static function resolveReportPath(mixed $path): ?string
+    {
+        if (!is_string($path) || trim($path) === '') {
+            return null;
+        }
+
+        return trim($path);
     }
 
     public static function loadDefaults(): self

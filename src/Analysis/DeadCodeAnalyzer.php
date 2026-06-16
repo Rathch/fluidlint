@@ -6,27 +6,12 @@ declare(strict_types=1);
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-/*
- * This file is part of the package cru/fluidlint
- *
- * Copyright (C) 2026 Christian Rath-Ulrich
- *
- * It is free software; you can redistribute it and/or modify it under
- * the terms of the GNU General Public License, either version 3
- * of the License, or any later version.
- *
- * For the full copyright and license information, please read the
- * LICENSE file that was distributed with this source code.
- */
-
 namespace Cru\Fluidlint\Analysis;
 
 use Cru\Fluidlint\Configuration\Configuration;
 use Cru\Fluidlint\Report\Issue;
 use Cru\Fluidlint\Report\Severity;
 use TYPO3Fluid\Fluid\Core\Parser\ParsingState;
-use TYPO3Fluid\Fluid\Core\Parser\SyntaxTree\NodeInterface;
-use TYPO3Fluid\Fluid\Core\Parser\SyntaxTree\TextNode;
 use TYPO3Fluid\Fluid\Core\Parser\SyntaxTree\ViewHelperNode;
 
 final class DeadCodeAnalyzer
@@ -35,6 +20,7 @@ final class DeadCodeAnalyzer
         private readonly ExpressionEvaluator $expressionEvaluator = new ExpressionEvaluator(),
         private readonly AstWalker $walker = new AstWalker(),
         private readonly ArgumentExtractor $argumentExtractor = new ArgumentExtractor(),
+        private readonly VariableReferenceExtractor $variableExtractor = new VariableReferenceExtractor(),
     ) {
     }
 
@@ -47,38 +33,71 @@ final class DeadCodeAnalyzer
         $issues = [];
 
         foreach ($parsingStates as $file => $parsingState) {
+            if ($this->isExcludedFromAnalysis($file, $configuration)) {
+                continue;
+            }
+
             $source = file_get_contents($file) ?: '';
-            array_push($issues, ...$this->analyzeUnreachableBranches($file, $source, $parsingState));
-            array_push($issues, ...$this->analyzeUnusedVariables($file, $source, $parsingState));
+
+            if ($configuration->isRuleEnabled('dead-code/unreachable-then')
+                || $configuration->isRuleEnabled('dead-code/unreachable-else')
+                || $configuration->isRuleEnabled('dead-code/unreachable-case')
+            ) {
+                array_push($issues, ...$this->analyzeUnreachableBranches($file, $source, $parsingState, $configuration));
+            }
+
+            if ($configuration->isRuleEnabled('dead-code/unused-variable')) {
+                array_push($issues, ...$this->analyzeUnusedVariables($file, $source, $parsingState));
+            }
+
+            if ($configuration->isRuleEnabled('dead-code/partial-all-arguments')) {
+                array_push($issues, ...$this->analyzePartialRenderCalls($file, $source));
+            }
         }
 
-        $severity = $configuration->orphanSeverityEnum();
-        foreach ($graph->orphanPartials() as $orphan) {
-            $issues[] = new Issue(
-                ruleId: 'dead-code/orphan-partial',
-                severity: $severity,
-                message: sprintf('Partial "%s" is not referenced by any template.', basename($orphan)),
-                file: $orphan,
-            );
+        if ($configuration->isRuleEnabled('dead-code/unused-partial-argument')) {
+            array_push($issues, ...$this->analyzePartialArguments($parsingStates, $graph, $configuration));
         }
 
-        foreach ($graph->orphanLayouts() as $orphan) {
-            $issues[] = new Issue(
-                ruleId: 'dead-code/orphan-layout',
-                severity: $severity,
-                message: sprintf('Layout "%s" is not referenced by any template.', basename($orphan)),
-                file: $orphan,
-            );
+        if ($configuration->isRuleEnabled('dead-code/orphan-partial')) {
+            $severity = $configuration->orphanSeverityEnum();
+            foreach ($graph->orphanPartials($configuration->excludeOrphanPatterns) as $orphan) {
+                $issues[] = new Issue(
+                    ruleId: 'dead-code/orphan-partial',
+                    severity: $severity,
+                    message: sprintf('Partial "%s" is not referenced by any template.', self::displayPartialName($orphan, $graph)),
+                    file: $orphan,
+                );
+            }
         }
 
-        foreach ($graph->unusedSections($configuration->entryPoints) as $unused) {
-            $issues[] = new Issue(
-                ruleId: 'dead-code/unused-section',
-                severity: $severity,
-                message: sprintf('Section "%s" is defined but never rendered.', $unused['section']),
-                file: $unused['file'],
-                context: ['section' => $unused['section']],
-            );
+        if ($configuration->isRuleEnabled('dead-code/orphan-layout')) {
+            $severity = $configuration->orphanSeverityEnum();
+            foreach ($graph->orphanLayouts() as $orphan) {
+                $issues[] = new Issue(
+                    ruleId: 'dead-code/orphan-layout',
+                    severity: $severity,
+                    message: sprintf('Layout "%s" is not referenced by any template.', basename($orphan)),
+                    file: $orphan,
+                );
+            }
+        }
+
+        if ($configuration->isRuleEnabled('dead-code/unused-section')) {
+            $severity = $configuration->orphanSeverityEnum();
+            foreach ($graph->unusedSections($configuration->entryPoints) as $unused) {
+                if ($this->templateUsesLayout($unused['file'], $parsingStates)) {
+                    continue;
+                }
+
+                $issues[] = new Issue(
+                    ruleId: 'dead-code/unused-section',
+                    severity: $severity,
+                    message: sprintf('Section "%s" is defined but never rendered.', $unused['section']),
+                    file: $unused['file'],
+                    context: ['section' => $unused['section']],
+                );
+            }
         }
 
         return $issues;
@@ -87,19 +106,20 @@ final class DeadCodeAnalyzer
     /**
      * @return list<Issue>
      */
-    public function analyzeUnreachableBranches(string $file, string $source, ParsingState $parsingState): array
+    public function analyzeUnreachableBranches(string $file, string $source, ParsingState $parsingState, ?Configuration $configuration = null): array
     {
         $issues = [];
+        $sourceLocator = new ViewHelperSourceLocator($source);
 
         $this->walker->walk(
             $parsingState->getRootNode(),
-            function (ViewHelperNode $node) use (&$issues, $file, $source): void {
+            function (ViewHelperNode $node) use (&$issues, $file, $sourceLocator, $configuration): void {
                 if ($this->walker->isCoreViewHelper($node, 'if')) {
-                    array_push($issues, ...$this->analyzeIfNode($file, $source, $node));
+                    array_push($issues, ...$this->analyzeIfNode($file, $node, $sourceLocator, $configuration));
                 }
 
                 if ($this->walker->isCoreViewHelper($node, 'switch')) {
-                    array_push($issues, ...$this->analyzeSwitchNode($file, $source, $node));
+                    array_push($issues, ...$this->analyzeSwitchNode($file, $node, $sourceLocator, $configuration));
                 }
             },
         );
@@ -134,20 +154,116 @@ final class DeadCodeAnalyzer
             },
         );
 
-        $this->collectVariableDefinitionsFromSource($source, $defined);
+        $this->variableExtractor->collectDefinitionsFromSource($source, $defined);
+        $this->variableExtractor->collectReadsFromNode($parsingState->getRootNode(), $read);
+        $this->variableExtractor->collectReadsFromSource($source, $read);
 
-        $this->collectVariableReads($parsingState->getRootNode(), $read);
-        $this->collectVariableReadsFromSource($source, $read);
+        $implicitlyPassed = array_fill_keys($this->variableExtractor->extractLoopVariablesPassedViaAll($source), true);
 
         $issues = [];
         foreach (array_keys($defined) as $variable) {
-            if (!isset($read[$variable])) {
+            if (isset($read[$variable]) || isset($implicitlyPassed[$variable])) {
+                continue;
+            }
+
+            $issues[] = new Issue(
+                ruleId: 'dead-code/unused-variable',
+                severity: Severity::Warning,
+                message: sprintf('Variable "%s" is defined but never read.', $variable),
+                file: $file,
+                context: ['variable' => $variable],
+            );
+        }
+
+        return $issues;
+    }
+
+    /**
+     * @return list<Issue>
+     */
+    public function analyzePartialRenderCalls(string $file, string $source): array
+    {
+        $issues = [];
+
+        foreach ($this->variableExtractor->extractPartialRenderCalls($source) as $call) {
+            if (!$call['usesAll']) {
+                continue;
+            }
+
+            $issues[] = new Issue(
+                ruleId: 'dead-code/partial-all-arguments',
+                severity: Severity::Warning,
+                message: sprintf(
+                    'Partial "%s" is rendered with _all; explicit unused-argument checks are skipped for this call.',
+                    $call['partial'],
+                ),
+                file: $file,
+                line: $call['line'],
+                context: ['partial' => $call['partial']],
+            );
+        }
+
+        return $issues;
+    }
+
+    /**
+     * @param array<string, ParsingState> $parsingStates
+     * @return list<Issue>
+     */
+    public function analyzePartialArguments(array $parsingStates, TemplateGraph $graph, ?Configuration $configuration = null): array
+    {
+        $issues = [];
+        $callsByPartial = [];
+
+        foreach ($graph->references() as $reference) {
+            if ($reference['type'] !== 'partial' || ($reference['usesAll'] ?? false)) {
+                continue;
+            }
+
+            if ($configuration !== null && $this->isExcludedFromAnalysis($reference['from'], $configuration)) {
+                continue;
+            }
+
+            $callsByPartial[$reference['target']][] = $reference;
+        }
+
+        foreach ($callsByPartial as $partialName => $calls) {
+            $partialFile = $this->resolvePartialFile($partialName, $graph);
+            if ($partialFile === null || !isset($parsingStates[$partialFile])) {
+                continue;
+            }
+
+            if ($configuration !== null && $this->isExcludedFromAnalysis($partialFile, $configuration)) {
+                continue;
+            }
+
+            $partialSource = file_get_contents($partialFile) ?: '';
+            $read = [];
+            $this->variableExtractor->collectReadsFromSource($partialSource, $read);
+            $this->variableExtractor->collectReadsFromNode($parsingStates[$partialFile]->getRootNode(), $read);
+
+            $passedArguments = [];
+            foreach ($calls as $call) {
+                foreach ($call['arguments'] ?? [] as $argument) {
+                    $passedArguments[$argument] = $call['from'];
+                }
+            }
+
+            foreach (array_keys($passedArguments) as $argument) {
+                if (isset($read[$argument])) {
+                    continue;
+                }
+
                 $issues[] = new Issue(
-                    ruleId: 'dead-code/unused-variable',
+                    ruleId: 'dead-code/unused-partial-argument',
                     severity: Severity::Warning,
-                    message: sprintf('Variable "%s" is defined but never read.', $variable),
-                    file: $file,
-                    context: ['variable' => $variable],
+                    message: sprintf(
+                        'Argument "%s" passed to partial "%s" is never read inside the partial.',
+                        $argument,
+                        $partialName,
+                    ),
+                    file: $partialFile,
+                    context: ['partial' => $partialName, 'argument' => $argument],
                 );
             }
         }
@@ -158,15 +274,19 @@ final class DeadCodeAnalyzer
     /**
      * @return list<Issue>
      */
-    private function analyzeIfNode(string $file, string $source, ViewHelperNode $node): array
+    private function analyzeIfNode(string $file, ViewHelperNode $node, ViewHelperSourceLocator $sourceLocator, ?Configuration $configuration = null): array
     {
         $result = $this->argumentExtractor->evaluateBooleanArgument($node, 'condition');
         if ($result === null) {
             return [];
         }
 
-        $line = $this->lineForViewHelper($source, $node);
+        $line = $sourceLocator->lineFor($node);
         if ($result === false && $this->walker->findChildViewHelper($node, 'then') !== null) {
+            if ($configuration !== null && !$configuration->isRuleEnabled('dead-code/unreachable-then')) {
+                return [];
+            }
+
             return [new Issue(
                 ruleId: 'dead-code/unreachable-then',
                 severity: Severity::Warning,
@@ -177,6 +297,10 @@ final class DeadCodeAnalyzer
         }
 
         if ($result === true && $this->walker->findChildViewHelper($node, 'else') !== null) {
+            if ($configuration !== null && !$configuration->isRuleEnabled('dead-code/unreachable-else')) {
+                return [];
+            }
+
             return [new Issue(
                 ruleId: 'dead-code/unreachable-else',
                 severity: Severity::Warning,
@@ -192,8 +316,12 @@ final class DeadCodeAnalyzer
     /**
      * @return list<Issue>
      */
-    private function analyzeSwitchNode(string $file, string $source, ViewHelperNode $node): array
+    private function analyzeSwitchNode(string $file, ViewHelperNode $node, ViewHelperSourceLocator $sourceLocator, ?Configuration $configuration = null): array
     {
+        if ($configuration !== null && !$configuration->isRuleEnabled('dead-code/unreachable-case')) {
+            return [];
+        }
+
         $expression = $this->argumentExtractor->extractLiteralValue($node, 'expression');
         if ($expression === null) {
             return [];
@@ -223,7 +351,7 @@ final class DeadCodeAnalyzer
                         severity: Severity::Info,
                         message: sprintf('Case "%s" is unreachable for constant switch expression.', (string)$caseValue),
                         file: $file,
-                        line: $this->lineForViewHelper($source, $child),
+                        line: $sourceLocator->lineFor($child),
                     );
                 }
             }
@@ -232,93 +360,46 @@ final class DeadCodeAnalyzer
         return $issues;
     }
 
-    /**
-     * @param array<string, true> $read
-     */
-    private function collectVariableReads(NodeInterface $node, array &$read): void
+    private function resolvePartialFile(string $partialName, TemplateGraph $graph): ?string
     {
-        if ($node instanceof TextNode) {
-            $this->extractVariablesFromText($node->getText(), $read);
-        }
-
-        if ($node instanceof ViewHelperNode) {
-            foreach ($node->getArguments() as $argument) {
-                if (is_string($argument)) {
-                    $this->extractVariablesFromText($argument, $read);
-                }
+        foreach ($graph->partialNamesByFile() as $file => $names) {
+            if (in_array($partialName, $names, true)) {
+                return $file;
             }
         }
 
-        if ($node instanceof ViewHelperNode || method_exists($node, 'getChildNodes')) {
-            foreach ($node->getChildNodes() as $child) {
-                if ($child instanceof NodeInterface) {
-                    $this->collectVariableReads($child, $read);
-                }
-            }
+        return null;
+    }
+
+    private static function displayPartialName(string $file, TemplateGraph $graph): string
+    {
+        $names = $graph->partialNamesByFile()[$file] ?? [];
+        if ($names !== []) {
+            return $names[0];
         }
+
+        return basename($file);
     }
 
     /**
-     * @param array<string, true> $defined
+     * @param array<string, ParsingState> $parsingStates
      */
-    private function collectVariableDefinitionsFromSource(string $source, array &$defined): void
+    private function templateUsesLayout(string $file, array $parsingStates): bool
     {
-        if (preg_match_all('/<f:variable\b[^>]*\bname\s*=\s*["\']([^"\']+)["\']/i', $source, $matches)) {
-            foreach ($matches[1] as $name) {
-                $defined[$name] = true;
-            }
+        if (!isset($parsingStates[$file])) {
+            return false;
         }
 
-        if (preg_match_all('/\{f:variable\([^)]*\bname\s*:\s*["\']([^"\']+)["\']/i', $source, $matches)) {
-            foreach ($matches[1] as $name) {
-                $defined[$name] = true;
-            }
+        $layoutName = $parsingStates[$file]->getUnevaluatedLayoutName();
+        if ($layoutName instanceof \TYPO3Fluid\Fluid\Core\Parser\SyntaxTree\TextNode) {
+            return trim($layoutName->getText()) !== '';
         }
 
-        if (preg_match_all('/<f:for\b[^>]*\bas\s*=\s*["\']([^"\']+)["\']/i', $source, $matches)) {
-            foreach ($matches[1] as $name) {
-                $defined[$name] = true;
-            }
-        }
+        return is_string($layoutName) && $layoutName !== '';
     }
 
-    /**
-     * @param array<string, true> $read
-     */
-    private function collectVariableReadsFromSource(string $source, array &$read): void
+    private function isExcludedFromAnalysis(string $file, Configuration $configuration): bool
     {
-        if (preg_match_all('/\{([a-zA-Z][a-zA-Z0-9_.]*)\}/', $source, $matches)) {
-            foreach ($matches[1] as $match) {
-                $root = explode('.', $match)[0];
-                $read[$root] = true;
-            }
-        }
-    }
-
-    /**
-     * @param array<string, true> $read
-     */
-    private function extractVariablesFromText(string $text, array &$read): void
-    {
-        if (preg_match_all('/\{([a-zA-Z][a-zA-Z0-9_.]*)\}/', $text, $matches)) {
-            foreach ($matches[1] as $match) {
-                $root = explode('.', $match)[0];
-                $read[$root] = true;
-            }
-        }
-    }
-
-    private function lineForViewHelper(string $source, ViewHelperNode $node): ?int
-    {
-        $needle = '<f:' . $node->getName();
-        $position = strpos($source, $needle);
-        if ($position === false) {
-            $position = strpos($source, '{f:' . $node->getName());
-        }
-        if ($position === false) {
-            return null;
-        }
-
-        return substr_count(substr($source, 0, $position), "\n") + 1;
+        return GlobMatcher::matchesAny($file, $configuration->excludeAnalysisPatterns);
     }
 }

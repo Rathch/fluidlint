@@ -64,6 +64,7 @@ final class DeadCodeCommand extends AbstractAnalyzeCommand
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
         $configuration = $this->loadConfiguration($input);
+        $pathBase = $this->resolvePathBase($input);
         $discovery = new TemplateDiscovery($configuration);
         $files = $discovery->discover($this->resolvePaths($input));
 
@@ -101,6 +102,6 @@ final class DeadCodeCommand extends AbstractAnalyzeCommand
 
         $format = (string)$input->getOption('format');
 
-        return $this->renderAndExit($issues, $format, count($files), $configuration->failOnSeverity(), $output);
+        return $this->renderAndExit($issues, $format, count($files), $configuration->failOnSeverity(), $output, $pathBase);
     }
 }

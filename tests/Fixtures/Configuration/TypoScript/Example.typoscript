@@ -1,0 +1,7 @@
+lib.exampleContentElement = FLUIDTEMPLATE
+lib.exampleContentElement {
+    templateName = Example
+    partialRootPaths {
+        200 = EXT:demo/Resources/Private/Partials/Page/
+    }
+}

@@ -28,6 +28,7 @@ use Cru\Fluidlint\Report\Issue;
 use Cru\Fluidlint\Report\Reporter;
 use Cru\Fluidlint\Report\Severity;
 use Cru\Fluidlint\Service\TemplateAnalyzer;
+use Cru\Fluidlint\Util\PathRelativizer;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Input\InputInterface;
@@ -62,6 +63,7 @@ final class ComplexityCommand extends AbstractAnalyzeCommand
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
         $configuration = $this->loadConfiguration($input);
+        $pathBase = $this->resolvePathBase($input);
         $discovery = new TemplateDiscovery($configuration);
         $files = $discovery->discover($this->resolvePaths($input));
 
@@ -96,28 +98,27 @@ final class ComplexityCommand extends AbstractAnalyzeCommand
                 $output->writeln(sprintf(
                     'Complexity: %d – %s',
                     $measurement['complexity'],
-                    $file,
+                    PathRelativizer::relativize($file, $pathBase),
                 ));
-                foreach ($measurement['contributions'] as $contribution) {
-                    $line = $contribution['line'] !== null ? 'line ' . $contribution['line'] : 'unknown line';
-                    $output->writeln(sprintf(
-                        '  +%d  %s (%s)',
-                        $contribution['points'],
-                        $contribution['viewHelper'],
-                        $line,
-                    ));
+                $branchCounts = ComplexityAnalyzer::summarizeContributions($measurement['contributions']);
+                if ($branchCounts !== []) {
+                    $parts = [];
+                    foreach ($branchCounts as $viewHelper => $count) {
+                        $parts[] = sprintf('%s: %d', $viewHelper, $count);
+                    }
+                    $output->writeln('  ' . implode(', ', $parts));
                 }
             }
         }
 
         $format = (string)$input->getOption('format');
         if ($format !== 'text') {
-            return $this->renderAndExit($issues, $format, count($files), $configuration->failOnSeverity(), $output);
+            return $this->renderAndExit($issues, $format, count($files), $configuration->failOnSeverity(), $output, $pathBase);
         }
 
         if ($issues !== []) {
             $output->writeln('');
-            $output->write($this->reporter->renderText($issues));
+            $output->write($this->reporter->renderText($issues, $pathBase, $output->isDecorated()));
         }
 
         return $this->reporter->exceedsFailThreshold($issues, $configuration->failOnSeverity()) ? 1 : 0;

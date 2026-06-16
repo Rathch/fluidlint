@@ -15,6 +15,12 @@ rules:
     fluid/nesting-depth: true
     fluid/empty-section: true
     fluid/duplicate-section: true
+    dead-code/partial-all-arguments: false
+    dead-code/unused-partial-argument: true
+    dead-code/unused-variable: true
+    dead-code/orphan-partial: true
+    dead-code/orphan-layout: true
+    dead-code/unused-section: true
 
 nestingDepth:
     warn: 8
@@ -28,5 +34,16 @@ deadCode:
     entryPoints:
         - '**/Resources/Private/Templates/**'
     orphanSeverity: info
+    typoScriptPaths:
+        - 'Configuration/**/*.typoscript'
+        - 'Configuration/**/*.ts'
+    excludeOrphanPatterns:
+        - '**/Resources/Extensions/**'
+    excludeAnalysisPatterns:
+        - '**/Resources/Extensions/**'
+
+# Optional: detailed JSON report with per-file complexity calculations
+# report:
+#     path: var/fluidlint-report.json
 
 failOn: warning

@@ -40,4 +40,13 @@ enum Severity: string
     {
         return $this->rank() >= $minimum->rank();
     }
+
+    public function consoleTag(): string
+    {
+        return match ($this) {
+            self::Error => 'error',
+            self::Warning => 'comment',
+            self::Info => 'info',
+        };
+    }
 }
