@@ -21,31 +21,36 @@ declare(strict_types=1);
 
 namespace Cru\Fluidlint\Parser;
 
+use TYPO3Fluid\Fluid\Core\Exception as FluidException;
 use TYPO3Fluid\Fluid\Core\Parser\Exception as ParserException;
 use TYPO3Fluid\Fluid\Core\Parser\ParsingState;
 use TYPO3Fluid\Fluid\Core\Parser\TemplateParser;
 
 final class TemplateParserFactory
 {
-    private ?TemplateParser $parser = null;
-
     public function createParser(): TemplateParser
     {
-        if ($this->parser === null) {
-            $context = new LintRenderingContext();
-            $parser = new TemplateParser();
-            $parser->setRenderingContext($context);
-            $this->parser = $parser;
-        }
+        $parser = new TemplateParser();
+        $parser->setRenderingContext(new LintRenderingContext());
 
-        return $this->parser;
+        return $parser;
     }
 
     /**
+     * Fluid reports unknown ViewHelper arguments as ViewHelper exceptions.
+     * Those are rethrown by the error handler and do not extend ParserException,
+     * so a single invalid tag would otherwise abort the whole scan.
+     *
      * @throws ParserException
      */
     public function parse(string $source, string $identifier): ParsingState
     {
-        return $this->createParser()->parse($source, $identifier, $identifier);
+        try {
+            return $this->createParser()->parse($source, $identifier);
+        } catch (ParserException $exception) {
+            throw $exception;
+        } catch (FluidException $exception) {
+            throw new ParserException($exception->getMessage(), $exception->getCode(), $exception);
+        }
     }
 }

@@ -110,6 +110,41 @@ final class FluidlintTest extends TestCase
         self::assertNotNull($state->getRootNode());
     }
 
+    public function testReportsUndeclaredViewHelperArgumentWithoutAbortingScan(): void
+    {
+        $directory = sys_get_temp_dir() . '/fluidlint-undeclared-' . uniqid('', true);
+        mkdir($directory);
+        $bad = $directory . '/Bad.html';
+        $good = $directory . '/Good.html';
+        file_put_contents($bad, '<f:if condition="1" nope="x">yes</f:if>');
+        file_put_contents($good, '<f:if condition="0"><f:then>Unreachable</f:then></f:if>');
+
+        try {
+            $result = (new TemplateAnalyzer())->analyzeFiles([$bad, $good], Configuration::loadDefaults(), false, true);
+        } finally {
+            unlink($bad);
+            unlink($good);
+            rmdir($directory);
+        }
+
+        $badIssues = array_values(array_filter(
+            $result['issues'],
+            static fn ($issue): bool => str_ends_with($issue->file, 'Bad.html'),
+        ));
+        self::assertCount(1, $badIssues);
+        self::assertSame('fluid/parse-error', $badIssues[0]->ruleId);
+        self::assertStringContainsString('nope', $badIssues[0]->message);
+
+        $goodRuleIds = array_map(
+            static fn ($issue): string => $issue->ruleId,
+            array_filter(
+                $result['issues'],
+                static fn ($issue): bool => str_ends_with($issue->file, 'Good.html'),
+            ),
+        );
+        self::assertContains('dead-code/unreachable-then', $goodRuleIds);
+    }
+
     public function testParsesViewHelperWithConstructorDependencies(): void
     {
         $parser = new TemplateParserFactory();
