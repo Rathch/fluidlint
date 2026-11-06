@@ -17,7 +17,7 @@ fluidlint scans Fluid templates directly from the filesystem. PHP ViewHelper cla
 In your TYPO3 project or extension as a dev dependency:
 
 ```bash
-composer require --dev cru/fluidlint:^1.0
+composer require --dev cru/fluidlint:^2.0
 ```
 
 ## Quick start
