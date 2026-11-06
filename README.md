@@ -10,7 +10,7 @@ fluidlint scans Fluid templates directly from the filesystem. PHP ViewHelper cla
 ## Requirements
 
 - PHP 8.2+
-- `typo3fluid/fluid` 2.15+ (TYPO3 v13) or 4.x (TYPO3 v14)
+- `typo3fluid/fluid` 4.x (TYPO3 v13) or 5.x (TYPO3 v14)
 
 ## Installation
 

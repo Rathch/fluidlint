@@ -8,6 +8,11 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        fluid: ['^4.0', '^5.0']
+    name: test (Fluid ${{ matrix.fluid }})
     steps:
       - uses: actions/checkout@v4
 
@@ -18,7 +23,7 @@ jobs:
           coverage: none
 
       - name: Install dependencies
-        run: composer install --no-interaction
+        run: composer update --with "typo3fluid/fluid:${{ matrix.fluid }}" --no-interaction --prefer-dist
 
       - name: Run tests
         run: vendor/bin/phpunit
